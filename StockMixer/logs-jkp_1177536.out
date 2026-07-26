@@ -1,0 +1,31 @@
+torch 2.12.1+cu126 device cuda
+candidate features 402
+features at coverage 0.9 pre 1990 n 221
+processing months 864
+  processed 200 of 864 sec 9
+  processed 400 of 864 sec 30
+  processed 600 of 864 sec 70
+  processed 800 of 864 sec 100
+train months 864 total months 864 n_features 221
+progress 110 of 864 done 50 skip 60 elapsed_min 3.7
+progress 160 of 864 done 100 skip 60 elapsed_min 6.8
+progress 210 of 864 done 150 skip 60 elapsed_min 10.0
+progress 260 of 864 done 200 skip 60 elapsed_min 13.2
+progress 310 of 864 done 250 skip 60 elapsed_min 16.4
+progress 360 of 864 done 300 skip 60 elapsed_min 19.6
+progress 410 of 864 done 350 skip 60 elapsed_min 22.9
+progress 460 of 864 done 400 skip 60 elapsed_min 26.1
+progress 510 of 864 done 450 skip 60 elapsed_min 29.3
+progress 560 of 864 done 500 skip 60 elapsed_min 32.6
+progress 610 of 864 done 550 skip 60 elapsed_min 35.8
+progress 660 of 864 done 600 skip 60 elapsed_min 39.1
+progress 710 of 864 done 650 skip 60 elapsed_min 42.3
+progress 760 of 864 done 700 skip 60 elapsed_min 45.6
+progress 810 of 864 done 750 skip 60 elapsed_min 48.8
+progress 860 of 864 done 800 skip 60 elapsed_min 52.1
+progress 864 of 864 done 804 skip 60 elapsed_min 52.3
+backtest complete oos_months 804 skipped 60 total_min 52.3
+output rows 1345424 months 804
+months scored 804
+sharpe unscaled 2.858
+sharpe scaled to 10 percent vol 2.946
