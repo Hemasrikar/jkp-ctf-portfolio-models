@@ -1,0 +1,32 @@
+torch 2.12.1+cu126 device cuda
+features 221
+beta column beta_60m found
+processing months 864
+  processed 200 of 864 sec 9
+  processed 400 of 864 sec 29
+  processed 600 of 864 sec 68
+  processed 800 of 864 sec 98
+train months 864 total months 864
+progress 110 of 864 done 50 skip 60 elapsed_min 2.2
+progress 160 of 864 done 100 skip 60 elapsed_min 4.1
+progress 210 of 864 done 150 skip 60 elapsed_min 6.0
+progress 260 of 864 done 200 skip 60 elapsed_min 7.8
+progress 310 of 864 done 250 skip 60 elapsed_min 9.7
+progress 360 of 864 done 300 skip 60 elapsed_min 11.6
+progress 410 of 864 done 350 skip 60 elapsed_min 13.4
+progress 460 of 864 done 400 skip 60 elapsed_min 15.3
+progress 510 of 864 done 450 skip 60 elapsed_min 17.2
+progress 560 of 864 done 500 skip 60 elapsed_min 19.1
+progress 610 of 864 done 550 skip 60 elapsed_min 21.0
+progress 660 of 864 done 600 skip 60 elapsed_min 22.9
+progress 710 of 864 done 650 skip 60 elapsed_min 24.8
+progress 760 of 864 done 700 skip 60 elapsed_min 26.7
+progress 810 of 864 done 750 skip 60 elapsed_min 28.5
+progress 860 of 864 done 800 skip 60 elapsed_min 30.4
+progress 864 of 864 done 804 skip 60 elapsed_min 30.6
+backtest complete oos_months 804 skipped 60 total_min 30.6
+output rows 1345424 months 804
+months scored 804
+sharpe unscaled 3.382
+sharpe scaled to 10 percent vol 3.37
+wrote output.csv rows 1345424 months 804
