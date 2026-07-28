@@ -1,6 +1,6 @@
 """Nonlinear IPCA with precision weighting.
 
-Ported from the original with two changes only:
+Ported from the original with changes:
 
 	The per year loop scores every year with sufficient history, not just test
 	years. The reference produces weights from 1990 onward.
