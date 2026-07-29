@@ -11,3 +11,8 @@ dependencies = [
     "pyarrow>=25.0.0",
     "torch>=2.13.0",
 ]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
