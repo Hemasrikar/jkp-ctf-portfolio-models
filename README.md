@@ -17,3 +17,6 @@
 | [StockMixer](./StockMixer/StockMixer.py) | 2.280 | 2.292 |
 | [FT Crossectional Transformer](./FT%20Crossectional%20Transformer/ft-cross-portfolio.py) | 2.050 | 2.161 |
 | [Cross Attention MLP](./Cross%20Attention%20MLP/cross-attention-mlp.py) | 1.940 | 1.935 |
+
+---
+As of now, the models provided above are ranked 2nd, 5th, and 6th, respectively, on the [JKP Leaderboard](https://jkpfactors.com/ctf/leaderboard). There is a slight difference in the Sharpe ratios compared with the leaderboard, which is likely due to small floating-point differences from running the calculations on the GPU cluster.
