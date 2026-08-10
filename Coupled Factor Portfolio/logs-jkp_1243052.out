@@ -1,0 +1,72 @@
+torch 2.12.1+cu126 device cuda seeds 8 beta beta_60m k 32 halflife 120.0 precision True
+months 864 with targets 864
+year 1962 ( 12 of 73 ) train months 121 inputs 189 fit_sec 79 elapsed_min 1.4
+year 1963 ( 13 of 73 ) train months 133 inputs 189 fit_sec 40 elapsed_min 2.1
+year 1964 ( 14 of 73 ) train months 145 inputs 184 fit_sec 84 elapsed_min 3.5
+year 1965 ( 15 of 73 ) train months 157 inputs 186 fit_sec 92 elapsed_min 5.0
+year 1966 ( 16 of 73 ) train months 169 inputs 194 fit_sec 98 elapsed_min 6.7
+year 1967 ( 17 of 73 ) train months 181 inputs 193 fit_sec 107 elapsed_min 8.5
+year 1968 ( 18 of 73 ) train months 193 inputs 191 fit_sec 114 elapsed_min 10.4
+year 1969 ( 19 of 73 ) train months 205 inputs 196 fit_sec 122 elapsed_min 12.4
+year 1970 ( 20 of 73 ) train months 217 inputs 206 fit_sec 129 elapsed_min 14.6
+year 1971 ( 21 of 73 ) train months 229 inputs 199 fit_sec 137 elapsed_min 16.9
+year 1972 ( 22 of 73 ) train months 241 inputs 198 fit_sec 145 elapsed_min 19.3
+year 1973 ( 23 of 73 ) train months 253 inputs 200 fit_sec 153 elapsed_min 21.9
+year 1974 ( 24 of 73 ) train months 265 inputs 204 fit_sec 160 elapsed_min 24.6
+year 1975 ( 25 of 73 ) train months 277 inputs 201 fit_sec 169 elapsed_min 27.4
+year 1976 ( 26 of 73 ) train months 289 inputs 204 fit_sec 177 elapsed_min 30.4
+year 1977 ( 27 of 73 ) train months 301 inputs 211 fit_sec 186 elapsed_min 33.5
+year 1978 ( 28 of 73 ) train months 313 inputs 218 fit_sec 194 elapsed_min 36.8
+year 1979 ( 29 of 73 ) train months 325 inputs 224 fit_sec 204 elapsed_min 40.2
+year 1980 ( 30 of 73 ) train months 337 inputs 227 fit_sec 212 elapsed_min 43.8
+year 1981 ( 31 of 73 ) train months 349 inputs 230 fit_sec 221 elapsed_min 47.5
+year 1982 ( 32 of 73 ) train months 361 inputs 228 fit_sec 230 elapsed_min 51.3
+year 1983 ( 33 of 73 ) train months 373 inputs 228 fit_sec 131 elapsed_min 53.5
+year 1984 ( 34 of 73 ) train months 385 inputs 227 fit_sec 246 elapsed_min 57.7
+year 1985 ( 35 of 73 ) train months 397 inputs 225 fit_sec 256 elapsed_min 62.0
+year 1986 ( 36 of 73 ) train months 409 inputs 225 fit_sec 146 elapsed_min 64.4
+year 1987 ( 37 of 73 ) train months 421 inputs 223 fit_sec 272 elapsed_min 69.0
+year 1988 ( 38 of 73 ) train months 433 inputs 223 fit_sec 157 elapsed_min 71.6
+year 1989 ( 39 of 73 ) train months 445 inputs 221 fit_sec 290 elapsed_min 76.5
+year 1990 ( 40 of 73 ) train months 457 inputs 221 fit_sec 166 elapsed_min 79.3
+year 1991 ( 41 of 73 ) train months 469 inputs 220 fit_sec 306 elapsed_min 84.4
+year 1992 ( 42 of 73 ) train months 481 inputs 220 fit_sec 176 elapsed_min 87.4
+year 1993 ( 43 of 73 ) train months 493 inputs 220 fit_sec 182 elapsed_min 90.5
+year 1994 ( 44 of 73 ) train months 505 inputs 219 fit_sec 333 elapsed_min 96.0
+year 1995 ( 45 of 73 ) train months 517 inputs 214 fit_sec 341 elapsed_min 101.7
+year 1996 ( 46 of 73 ) train months 529 inputs 214 fit_sec 197 elapsed_min 105.1
+year 1997 ( 47 of 73 ) train months 541 inputs 212 fit_sec 359 elapsed_min 111.1
+year 1998 ( 48 of 73 ) train months 553 inputs 210 fit_sec 369 elapsed_min 117.3
+year 1999 ( 49 of 73 ) train months 565 inputs 204 fit_sec 377 elapsed_min 123.6
+year 2000 ( 50 of 73 ) train months 577 inputs 204 fit_sec 219 elapsed_min 127.3
+year 2001 ( 51 of 73 ) train months 589 inputs 201 fit_sec 396 elapsed_min 133.9
+year 2002 ( 52 of 73 ) train months 601 inputs 201 fit_sec 230 elapsed_min 137.8
+year 2003 ( 53 of 73 ) train months 613 inputs 202 fit_sec 413 elapsed_min 144.7
+year 2004 ( 54 of 73 ) train months 625 inputs 208 fit_sec 423 elapsed_min 151.8
+year 2005 ( 55 of 73 ) train months 637 inputs 209 fit_sec 432 elapsed_min 159.0
+year 2006 ( 56 of 73 ) train months 649 inputs 210 fit_sec 439 elapsed_min 166.4
+year 2007 ( 57 of 73 ) train months 661 inputs 210 fit_sec 257 elapsed_min 170.7
+year 2008 ( 58 of 73 ) train months 673 inputs 210 fit_sec 262 elapsed_min 175.1
+year 2009 ( 59 of 73 ) train months 685 inputs 210 fit_sec 267 elapsed_min 179.5
+year 2010 ( 60 of 73 ) train months 697 inputs 211 fit_sec 473 elapsed_min 187.5
+year 2011 ( 61 of 73 ) train months 709 inputs 214 fit_sec 484 elapsed_min 195.5
+year 2012 ( 62 of 73 ) train months 721 inputs 217 fit_sec 493 elapsed_min 203.8
+year 2013 ( 63 of 73 ) train months 733 inputs 221 fit_sec 502 elapsed_min 212.2
+year 2014 ( 64 of 73 ) train months 745 inputs 226 fit_sec 513 elapsed_min 220.8
+year 2015 ( 65 of 73 ) train months 757 inputs 230 fit_sec 523 elapsed_min 229.5
+year 2016 ( 66 of 73 ) train months 769 inputs 233 fit_sec 533 elapsed_min 238.4
+year 2017 ( 67 of 73 ) train months 781 inputs 234 fit_sec 543 elapsed_min 247.5
+year 2018 ( 68 of 73 ) train months 793 inputs 237 fit_sec 553 elapsed_min 256.8
+year 2019 ( 69 of 73 ) train months 805 inputs 237 fit_sec 332 elapsed_min 262.3
+year 2020 ( 70 of 73 ) train months 817 inputs 239 fit_sec 572 elapsed_min 271.9
+year 2021 ( 71 of 73 ) train months 829 inputs 240 fit_sec 582 elapsed_min 281.6
+year 2022 ( 72 of 73 ) train months 841 inputs 240 fit_sec 349 elapsed_min 287.5
+year 2023 ( 73 of 73 ) train months 853 inputs 241 fit_sec 602 elapsed_min 297.6
+months solved 743 skipped 0 total_min 297.6
+output rows 1321203 months 743
+
+months total 743 pre 336 test 407
+TEST WINDOW   sharpe 3.109
+PRE TEST      sharpe 5.168
+annualised return 0.0801 volatility 0.0258
+wrote output.csv rows 1321203 months 743
