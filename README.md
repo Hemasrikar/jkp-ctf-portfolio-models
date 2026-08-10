@@ -8,6 +8,7 @@
 | Model name | Sharpe value scaled | Sharpe value unscaled |
 |---|---:|---:|
 | [IPCA](./IPCA/) | 3.299 | 3.350 |
+| [Coupled Factor Portfolio](./Coupled%20Factor%20Portfolio/) | 2.969 | 3.112 |
 | [Volatility Targeted MLP](./Volatility%20Targeted%20MLP/) | 2.753 | 2.912 |
 | [Beta-Neutral Cross-Sectional MLP](./Beta-Neutral%20Cross-Sectional%20MLP/beta_neutral_cross_sectional_mlp.py) | 2.541 | 2.614 |
 | [Cross Sectional MLP](./Cross%20Sectional%20MLP/cross-sectional-mlp.py) | 2.484 | 2.553 |
