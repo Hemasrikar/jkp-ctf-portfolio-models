@@ -7,6 +7,7 @@
 
 | Model name | Sharpe value scaled | Sharpe value unscaled |
 |---|---:|---:|
+| [Monthly Volatility Targeted Coupled Factor Portfolio](./Monthly%20volatility%20targeted%20CFP/) | 3.324 | 3.447 |
 | [IPCA](./IPCA/) - not my model | 3.299 | 3.350 |
 | [Coupled Factor Portfolio](./Coupled%20Factor%20Portfolio/) | 2.969 | 3.112 |
 | [Volatility Targeted MLP](./Volatility%20Targeted%20MLP/) | 2.753 | 2.912 |
