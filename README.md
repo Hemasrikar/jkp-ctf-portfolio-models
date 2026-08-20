@@ -21,3 +21,8 @@
 
 ---
 As of now, the models provided above are ranked 2nd, 3rd, 6th, and 7th, on the [JKP Leaderboard](https://jkpfactors.com/ctf/leaderboard). There is a slight difference in the Sharpe ratios compared with the leaderboard, which is likely due to small floating-point differences from running the calculations on the GPU cluster.
+
+---
+## Importation Findings
+
+> cov_lookback_days controls how fast leverage responds. The optimal value found from the experimentation is 126 days
