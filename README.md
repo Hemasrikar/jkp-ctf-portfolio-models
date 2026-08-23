@@ -20,7 +20,7 @@
 | [Cross Attention MLP](./Cross%20Attention%20MLP/cross-attention-mlp.py) | 1.940 | 1.935 |
 
 ---
-As of now, the models provided above are ranked 2nd, 3rd, 6th, and 7th, on the [JKP Leaderboard](https://jkpfactors.com/ctf/leaderboard). There is a slight difference in the Sharpe ratios compared with the leaderboard, which is likely due to small floating-point differences from running the calculations on the GPU cluster.
+As of now, the models provided above are ranked 1st, 3rd, 6th, and 7th, on the [JKP Leaderboard](https://jkpfactors.com/ctf/leaderboard). There is a slight difference in the Sharpe ratios compared with the leaderboard, which is likely due to small floating-point differences from running the calculations on the GPU cluster.
 
 ---
 ## Importation Findings
