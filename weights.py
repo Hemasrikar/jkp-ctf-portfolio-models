@@ -73,11 +73,11 @@ def sharpe_report(label, weights, chars, vol_target_annual=0.10, lookback=36, ma
 
 	print()
 	print(label)
-	print("  months scored:", len(series), "range", series.index.min(), "->", series.index.max())
-	print("  annualised return:", round(float(series.mean()) * 12.0, 4))
-	print("  annualised volatility:", round(float(sd) * ann, 4))
-	print("  sharpe unscaled:", round(sharpe, 3))
-	print("  sharpe scaled to", int(vol_target_annual * 100), "percent vol:", round(sharpe_scaled, 3))
+	print("months scored:", len(series), "range", series.index.min(), "->", series.index.max())
+	print("annualised return:", round(float(series.mean()) * 12.0, 4))
+	print("annualised volatility:", round(float(sd) * ann, 4))
+	print("sharpe unscaled:", round(sharpe, 3))
+	print("sharpe scaled to", int(vol_target_annual * 100), "percent vol:", round(sharpe_scaled, 3))
 
 
 # the test rows are what the competition scores, the full file is context only
