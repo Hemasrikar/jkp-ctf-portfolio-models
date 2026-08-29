@@ -5,6 +5,7 @@ target_dir = "StockMixer"
 
 chars = pd.read_parquet("jkp-data/chars.parquet")
 w = pd.read_csv(f"{target_dir}/output.csv")
+weights_file = f"{target_dir}/weights.csv"
 
 flag = chars["ctff_test"]
 print("ctff_test dtype:", flag.dtype)
@@ -28,10 +29,17 @@ print("weights eom range:", w["eom"].min(), "->", w["eom"].max())
 
 out = test.merge(w, on=["id", "eom"], how="inner")
 out["w"] = out["w"].round(8)
-out.to_csv(f"{target_dir}/weights.csv", index=False)
+out.to_csv(weights_file, index=False)
 
 print("matched rows:", len(out), "months:", out["eom"].nunique())
 print("size MB:", round(len(out.to_csv(index=False).encode()) / 1e6, 1))
+
+
+def max_drawdown(returns):
+	cum = np.cumprod(1.0 + returns)
+	peak = np.maximum.accumulate(cum)
+	dd = cum / peak - 1.0
+	return float(dd.min())
 
 
 def sharpe_report(label, weights, chars, vol_target_annual=0.10, lookback=36, max_lev=10.0):
@@ -71,15 +79,19 @@ def sharpe_report(label, weights, chars, vol_target_annual=0.10, lookback=36, ma
 	sd_sc = np.std(sc, ddof=1)
 	sharpe_scaled = float(np.mean(sc) / sd_sc * ann) if sd_sc > 1e-12 else float("nan")
 
+	mdd = max_drawdown(vals)
+	mdd_scaled = max_drawdown(sc)
+
 	print()
 	print(label)
 	print("months scored:", len(series), "range", series.index.min(), "->", series.index.max())
 	print("annualised return:", round(float(series.mean()) * 12.0, 4))
 	print("annualised volatility:", round(float(sd) * ann, 4))
 	print("sharpe unscaled:", round(sharpe, 3))
+	print("max drawdown unscaled:", round(mdd, 4))
 	print("sharpe scaled to", int(vol_target_annual * 100), "percent vol:", round(sharpe_scaled, 3))
+	print("max drawdown scaled:", round(mdd_scaled, 4))
 
 
-# the test rows are what the competition scores, the full file is context only
 sharpe_report("submitted weights, test rows only", out, chars)
 sharpe_report("all months in the weights file", w, chars)
