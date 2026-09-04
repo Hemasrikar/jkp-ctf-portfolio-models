@@ -26,6 +26,8 @@ two."""
 import multiprocessing as mp
 import os
 import random
+import subprocess
+import sys
 import time
 
 # all but two logical cores for the numeric libraries, set before they load
@@ -65,6 +67,7 @@ batch_months = 24
 n_seeds = 4
 base_seed = 42
 parallel_seeds = True
+max_workers = 0  # seeds trained at once; 0 sizes it from the memory of the device
 min_train_months = 120
 
 # beta neutralisation
@@ -94,12 +97,101 @@ pre_test_date = "1990-01-01"
 min_stocks = 30
 max_miss_frac = 1.0 / 3.0
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def nvidia_smi(fields):
+	"""Ask the driver directly, which works whether or not torch can see the gpu."""
+	exes = ["nvidia-smi"]
+	if os.name == "nt":
+		exes += [os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "nvidia-smi.exe"),
+		         r"C:\Program Files\NVIDIA Corporation\NVSMI\nvidia-smi.exe"]
+	for exe in exes:
+		try:
+			out = subprocess.run([exe, f"--query-gpu={fields}", "--format=csv,noheader,nounits"],
+			                     capture_output=True, text=True, timeout=20)
+		except Exception:
+			continue
+		if out.returncode == 0 and out.stdout.strip():
+			return [v.strip() for v in out.stdout.strip().splitlines()[0].split(",")]
+	return None
+
+
+def pick_device():
+	"""Choose the device, refusing to fall back to the cpu silently.
+
+	A machine with an nvidia gpu that torch cannot use is an installation problem,
+	usually the cpu-only torch that `pip install torch` gives on windows, and the
+	right response is to say so and stop rather than run thirty times slower for a
+	day. JKP_DEVICE=cpu (or cuda, cuda:1) forces a device on purpose.
+	"""
+	forced = os.environ.get("JKP_DEVICE", "").strip().lower()
+	if forced:
+		return torch.device(forced)
+	if torch.cuda.is_available():
+		return torch.device("cuda")
+	if mp.parent_process() is not None:
+		return torch.device("cpu")  # a worker; the main process already reported
+	smi = nvidia_smi("name,driver_version,memory.total")
+	if smi is None:
+		print("WARNING no nvidia gpu found (nvidia-smi absent); running on the cpu, expect it to be many times slower",
+		      flush=True)
+		return torch.device("cpu")
+	msg = [f"an nvidia gpu is present ({smi[0]}, driver {smi[1]}, {smi[2]} MiB) but torch cannot use it",
+	       f"  python : {sys.executable}",
+	       f"  torch  : {torch.__version__}, cuda build: {torch.version.cuda}"]
+	if torch.version.cuda is None:
+		msg += ["  this torch is the cpu-only build, which is what `pip install torch` gives on windows. fix, in this venv:",
+		        "    python -m pip uninstall -y torch",
+		        "    python -m pip install \"torch==2.11.*\" --index-url https://download.pytorch.org/whl/cu128",
+		        "  or from the repo root run `uv sync`, whose pyproject already points at that index"]
+	else:
+		msg += [f"  torch was built for cuda {torch.version.cuda} but the driver refuses it: the driver is too old",
+		        "  (cuda 12 wheels need driver 528 or newer on windows; update it from nvidia.com/drivers)",
+		        "  or the gpu is hidden (check CUDA_VISIBLE_DEVICES, and that the gpu is enabled in device manager)"]
+	msg += ["  to run on the cpu anyway, set the environment variable JKP_DEVICE=cpu"]
+	raise RuntimeError("\n".join(msg))
+
+
+def pick_workers(dev):
+	"""How many seeds train at once.
+
+	Each worker holds its own cuda context and its own copy of the training
+	panel, about 1 to 1.5 GB by the end of the sample, so the count follows the
+	memory of the card: 4 GB runs two seeds at a time, 8 GB all four. On the cpu
+	the threads are split between the workers instead. JKP_WORKERS overrides.
+	"""
+	forced = os.environ.get("JKP_WORKERS", "").strip()
+	if forced:
+		return max(1, min(n_seeds, int(forced)))
+	if max_workers > 0:
+		return max(1, min(n_seeds, max_workers))
+	if dev.type == "cuda":
+		total_gb = torch.cuda.get_device_properties(dev).total_memory / 2 ** 30
+		return max(1, min(n_seeds, int(round(total_gb)) // 2))
+	return max(1, min(n_seeds, n_threads // 2))
+
+
+device = pick_device()
 torch.set_num_threads(n_threads)
 if os.name == "nt":
 	# below normal priority: full machine when idle, yields to the desktop otherwise
 	import ctypes
 	ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x00004000)
+
+
+def describe_machine(n_workers):
+	"""One block at the top of the log that answers every setup question."""
+	lines = [f"python  {sys.version.split()[0]}  {sys.executable}",
+	         f"torch   {torch.__version__}  cuda build {torch.version.cuda}  cudnn {torch.backends.cudnn.version()}",
+	         f"cpu     {os.cpu_count()} logical cores, {n_threads} threads for torch/blas"]
+	if device.type == "cuda":
+		prop = torch.cuda.get_device_properties(device)
+		smi = nvidia_smi("driver_version")
+		lines.append(f"gpu     {prop.name}, {prop.total_memory / 2 ** 30:.1f} GB, capability {prop.major}.{prop.minor}, "
+		             f"driver {smi[0] if smi else 'unknown'}")
+	else:
+		lines.append("gpu     none in use (cpu run)")
+	lines.append(f"device  {device}  workers {n_workers} of {n_seeds} seeds"
+	             + ("" if parallel_seeds else " (parallel_seeds off, seeds run inline)"))
+	print("\n".join(lines), flush=True)
 
 
 def seed_all(s):
@@ -485,17 +577,25 @@ def fit_seed(s, prev, x_list, r_list, score_x):
 	return ln, pn, lam, books
 
 
-def seed_worker(s, conn):
-	"""Process owning one seed's chain of networks across the years."""
-	torch.set_num_threads(max(1, n_threads // n_seeds))
-	prev = None
+def seed_worker(seeds, n_workers, conn):
+	"""Process owning the chains of networks of its seeds across the years.
+
+	With fewer workers than seeds, each worker trains its seeds one after the
+	other; every seed is still seeded and warm started exactly as before, so the
+	worker count changes the wall time and nothing else.
+	"""
+	torch.set_num_threads(max(1, n_threads // n_workers))
+	prev = {s: None for s in seeds}
 	while True:
 		job = conn.recv()
 		if job is None:
 			break
-		ln, pn, lam, books = fit_seed(s, prev, *job)
-		prev = (ln, pn)
-		conn.send((state_cpu(ln), state_cpu(pn), lam, books))
+		outs = []
+		for s in seeds:
+			ln, pn, lam, books = fit_seed(s, prev[s], *job)
+			prev[s] = (ln, pn)
+			outs.append((s, state_cpu(ln), state_cpu(pn), lam, books))
+		conn.send(outs)
 	conn.close()
 
 
@@ -539,8 +639,9 @@ def report_sharpe(out, work):
 
 def main(chars: pd.DataFrame, features: pd.DataFrame, daily_ret: pd.DataFrame) -> pd.DataFrame:
 	t_start = time.time()
-	print("torch", torch.__version__, "device", device, "seeds", n_seeds, "k", k_factors,
-	      "vol_target", use_vol_target, "subspace", n_subspace, flush=True)
+	n_workers = pick_workers(device) if parallel_seeds else 1
+	describe_machine(n_workers)
+	print("seeds", n_seeds, "k", k_factors, "vol_target", use_vol_target, "subspace", n_subspace, flush=True)
 	seed_all(base_seed)
 
 	candidates = [f for f in features["features"].tolist() if f in chars.columns]
@@ -569,12 +670,13 @@ def main(chars: pd.DataFrame, features: pd.DataFrame, daily_ret: pd.DataFrame) -
 	prev = [None] * n_seeds
 	conns = []
 	if parallel_seeds:
-		# the seeds are independent chains, so each trains in its own process and
-		# they share the device concurrently
+		# the seeds are independent chains, so they train in separate processes
+		# that share the device concurrently; seeds are dealt round robin
 		ctx = mp.get_context("spawn")
-		for s in range(n_seeds):
+		for wi in range(n_workers):
 			parent, child = ctx.Pipe()
-			ctx.Process(target=seed_worker, args=(s, child), daemon=True).start()
+			ctx.Process(target=seed_worker, args=(list(range(wi, n_seeds, n_workers)), n_workers, child),
+			            daemon=True).start()
 			conns.append(parent)
 	n_done = 0
 	n_skip = 0
@@ -634,13 +736,14 @@ def main(chars: pd.DataFrame, features: pd.DataFrame, daily_ret: pd.DataFrame) -
 		# the covariances are cpu work, done while the workers train
 		covs = {eom: covariance_for(daily, eom, md["id"].to_numpy()) for eom, md, _ in score} if use_vol_target else {}
 		if conns:
-			outs = [conn.recv() for conn in conns]
+			outs = [o for conn in conns for o in conn.recv()]
 		else:
 			outs = []
 			for s in range(n_seeds):
 				ln, pn, lam, books = fit_seed(s, prev[s], x_list, r_list, score_x)
 				prev[s] = (ln, pn)
-				outs.append((state_cpu(ln), state_cpu(pn), lam, books))
+				outs.append((s, state_cpu(ln), state_cpu(pn), lam, books))
+		outs = [o[1:] for o in sorted(outs, key=lambda o: o[0])]  # seed order, as before
 		snapshot_models(saved, yr, [o[0] for o in outs], [o[1] for o in outs], [o[2] for o in outs], basis)
 		saved_meta[f"year_{yr}/cols"] = ",".join(cols)
 		save_file(saved, "model.safetensors", metadata=saved_meta)

@@ -26,3 +26,32 @@ As of now, the models provided above are ranked 1st, 3rd, 6th, and 7th, on the [
 ## Importation Findings
 
 > cov_lookback_days controls how fast leverage responds. The optimal value found from the experimentation is 126 days
+---
+## Running on another machine (GPU setup)
+
+The scripts pick the GPU only when `torch.cuda.is_available()` is true. On Windows the
+torch that `pip install torch` installs is **CPU-only**, so a fresh venv set up that way
+runs everything on the CPU, many times slower. Install torch from the CUDA index instead:
+
+```powershell
+uv sync                                   # uses the cu128 index pinned in pyproject.toml
+# or, without uv, inside the venv:
+python -m pip install "torch==2.11.*" --index-url https://download.pytorch.org/whl/cu128
+```
+
+Before a long run, check the interpreter you are about to use:
+
+```powershell
+.venv\Scripts\python gpu_check.py
+```
+
+It prints the python path, torch build, driver and GPU, tries one matmul on the GPU, and
+ends with a verdict and the fix if there is one. The Grassmann script also prints the same
+block at the top of its log and **stops with the fix** when an NVIDIA GPU is present but
+torch cannot use it, instead of quietly running on the CPU. Overrides, as environment
+variables: `JKP_DEVICE=cpu` (or `cuda:1`) forces a device, `JKP_WORKERS=2` caps how many
+seeds train at once (by default it is sized from the card's memory: 4 GB two, 8 GB four).
+
+Note: Windows Task Manager shows the "3D" engine by default, where CUDA work does not
+appear. Switch one of the GPU graphs to "Cuda" or "Compute_0", or trust the `device cuda`
+line in the log.
