@@ -53,7 +53,7 @@ import torch
 import torch.nn as nn
 
 # low rank structure
-n_components = 32
+n_components = 24
 cov_lookback_months = 120
 rp_weight = 1.0
 
@@ -67,7 +67,7 @@ min_universe = 30
 trading_days_per_month = 21.0
 moment_halflife = 120.0
 cov_shrink = 0.2
-factor_ridge = 1e-4
+factor_ridge = 1e-1
 
 # network
 d_model = 128
@@ -562,5 +562,5 @@ if __name__ == "__main__":
 	features = pd.read_parquet("jkp-data/features.parquet")
 	daily_ret = pd.read_parquet("jkp-data/daily_ret.parquet")
 	pf = main(chars, features, daily_ret)
-	pf.to_csv("output.csv", index=False)
+	pf.to_csv("output2.csv", index=False)
 	print("wrote output.csv rows", len(pf), "months", pf["eom"].nunique(), flush=True)
