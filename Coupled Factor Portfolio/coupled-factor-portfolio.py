@@ -1,28 +1,30 @@
-"""Coupled latent factor portfolio.
+"""Volatility Targeted Coupled Factor Portfolio.
 
-A network maps each stock's characteristics to k latent factor loadings. Each
-stock's embedding is mixed with a pooled context over the whole cross section
-before the loadings are read off, so a loading depends on the composition of the
-month rather than on the stock alone. Loadings are demeaned across stocks and each
-column is normalised to unit gross exposure, giving k long short factor
-portfolios.
+A network maps each stock's characteristics to k latent factor loadings. Each stock's
+embedding is mixed with a pooled context over the whole cross section before the
+loadings are read off, so a loading depends on the composition of the month rather than
+on the stock alone. Loadings are demeaned across stocks and each column normalised to
+unit gross exposure, giving k long short factor portfolios.
 
-A second network predicts each stock's log idiosyncratic variance, fitted by
-Gaussian likelihood on the residuals of the factor model. Its inverse weights each
-stock's contribution to the factor portfolios, so noisy names carry less.
+A second network predicts each stock's log idiosyncratic variance, fitted by Gaussian
+likelihood on the residuals of the factor model. Its inverse weights each stock's
+contribution to the factor portfolios.
 
 The loading network is fitted on the realised Sharpe ratio of the equally combined
-factors across a batch of months. The combination actually traded is solved in
-closed form from the mean and covariance of the factor returns, exponentially
-weighted toward recent months and shrunk toward a scaled identity.
+factors across a batch of months. The combination actually traded is solved in closed
+form from the mean and covariance of the factor returns, exponentially weighted toward
+recent months and shrunk toward a scaled identity.
 
 The book is the combination of factor portfolios, averaged over seeds, with the
-component lying along market beta projected out. That projection excludes an
-intercept, so the net exposure of the book is preserved.
+component along market beta projected out. That projection excludes an intercept, so
+net exposure is preserved. The book is then rescaled so its ex ante volatility, measured
+against a Ledoit and Wolf shrinkage covariance estimated from the trailing year of daily
+returns, meets a fixed annual target, subject to a gross exposure cap.
 
-Networks are refitted yearly on months whose forward returns precede that year,
-moments use only training window factor returns, and the coverage filter is
-recomputed yearly from months at or before the cutoff."""
+Networks are refitted yearly on months whose forward returns precede that year, moments
+use only training window factor returns, the covariance uses only the preceding year of
+daily returns, and the coverage filter is recomputed yearly from months at or before the
+cutoff."""
 
 import random
 import time
@@ -55,12 +57,23 @@ epochs_cold = 40
 epochs_warm = 12
 epochs_var = 20
 batch_months = 24
-n_seeds = 8
+n_seeds = 4
 base_seed = 42
 min_train_months = 120
 
 # beta neutralisation
 beta_col = "beta_60m"
+
+# volatility targeting. Each month the book is rescaled so its ex ante volatility,
+# measured against a shrinkage covariance from the trailing year of daily returns,
+# meets the target, subject to a gross exposure cap.
+use_vol_target = True
+target_vol_annual = 0.10
+gross_cap = 12.0
+cov_lookback_days = 252
+min_day_frac = 0.5
+min_universe = 30
+trading_days_per_month = 21.0
 
 # data preprocessing
 min_coverage = 0.90
@@ -122,6 +135,76 @@ class precision_net(nn.Module):
 
 	def forward(self, x):
 		return self.net(x).clamp(precision_clip[0], precision_clip[1]).squeeze(-1)
+
+
+def resolve(df, candidates, label):
+	for c in candidates:
+		if c in df.columns:
+			return c
+	raise KeyError(label + " not resolvable")
+
+
+def build_daily(daily_ret):
+	idc = resolve(daily_ret, ["id", "permno"], "daily id")
+	datec = resolve(daily_ret, ["date", "day"], "daily date")
+	retc = resolve(daily_ret, ["ret_exc", "ret", "ret_local"], "daily return")
+	d = daily_ret[[idc, datec, retc]].copy()
+	d.columns = ["id", "date", "r"]
+	d["date"] = pd.to_datetime(d["date"])
+	d = d.dropna(subset=["id", "date", "r"])
+	return d.sort_values("date", kind="mergesort").reset_index(drop=True)
+
+
+def shrink_covariance(x):
+	"""Shrinkage covariance with a constant correlation target. x is T by N."""
+	t, n = x.shape
+	xc = x - x.mean(axis=0, keepdims=True)
+	s = (xc.T @ xc) / t
+	var = np.maximum(np.diag(s).copy(), 1e-16)
+	sd = np.sqrt(var)
+	outer_sd = np.outer(sd, sd)
+	off = ~np.eye(n, dtype=bool)
+	r_bar = float((s / outer_sd)[off].mean()) if n > 1 else 0.0
+	target = r_bar * outer_sd
+	np.fill_diagonal(target, var)
+
+	x2 = xc * xc
+	pi_mat = (x2.T @ x2) / t - s * s
+	a = ((x2 * xc).T @ xc) / t
+	ratio = np.outer(1.0 / sd, sd)
+	rho_off = (r_bar / 2.0) * (ratio * (a - var[:, None] * s) + ratio.T * (a.T - var[None, :] * s))
+	rho_hat = float(np.diag(pi_mat).sum() + rho_off[off].sum())
+	diff = target - s
+	gamma_hat = float((diff * diff).sum())
+	delta = 0.0 if gamma_hat <= 1e-30 else float(np.clip((float(pi_mat.sum()) - rho_hat) / gamma_hat / t, 0.0, 1.0))
+
+	sigma = delta * target + (1.0 - delta) * s
+	sigma.flat[:: n + 1] += 1e-12
+	return sigma
+
+
+def covariance_for(daily, eom, ids):
+	"""Monthly covariance from the trailing year of daily returns."""
+	start = eom - pd.DateOffset(days=int(cov_lookback_days * 1.6))
+	win = daily[(daily["date"] > start) & (daily["date"] <= eom)]
+	if not len(win):
+		return None, None
+	win = win[win["id"].isin(set(ids.tolist()))]
+	if not len(win):
+		return None, None
+	piv = win.pivot_table(index="date", columns="id", values="r", aggfunc="last").tail(cov_lookback_days)
+	if piv.shape[0] < 40:
+		return None, None
+	frac = piv.notna().mean(axis=0)
+	keep = frac[frac >= min_day_frac].index
+	if len(keep) < min_universe:
+		return None, None
+	piv = piv[keep]
+	x = np.array(piv.to_numpy(dtype=np.float64), copy=True)
+	col_mean = np.nanmean(x, axis=0)
+	inds = np.where(np.isnan(x))
+	x[inds] = np.take(col_mean, inds[1])
+	return shrink_covariance(x) * trading_days_per_month, np.asarray(keep)
 
 
 def factor_weights(h, omega=None):
@@ -279,14 +362,20 @@ def report_sharpe(out, work):
 
 def main(chars: pd.DataFrame, features: pd.DataFrame, daily_ret: pd.DataFrame) -> pd.DataFrame:
 	t_start = time.time()
-	print("torch", torch.__version__, "device", device, "seeds", n_seeds, "beta", beta_col, "k", k_factors,
-	      "halflife", moment_halflife, "precision", use_precision, flush=True)
+	print("torch", torch.__version__, "device", device, "seeds", n_seeds, "k", k_factors,
+	      "vol_target", use_vol_target, flush=True)
 	seed_all(base_seed)
 
 	candidates = [f for f in features["features"].tolist() if f in chars.columns]
 	work = chars.copy()
 	work["eom"] = pd.to_datetime(work["eom"]) + pd.offsets.MonthEnd(0)
 	work["id"] = pd.to_numeric(work["id"], errors="coerce").astype("int64")
+
+	daily = None
+	if use_vol_target:
+		if daily_ret is None or not len(daily_ret):
+			raise ValueError("daily returns are required when use_vol_target is on")
+		daily = build_daily(daily_ret)
 
 	by_month = {eom: md for eom, md in work.groupby("eom", sort=True)}
 	all_months = sorted(by_month.keys())
@@ -295,6 +384,8 @@ def main(chars: pd.DataFrame, features: pd.DataFrame, daily_ret: pd.DataFrame) -
 	print("months", len(all_months), "with targets", len(target_months), flush=True)
 
 	years = sorted({pd.Timestamp(m).year for m in all_months})
+	target_vol = target_vol_annual / np.sqrt(12.0)
+	n_scaled = 0
 	results = []
 	loaders, precs, lams, cols = [], [], [], None
 	n_done = 0
@@ -345,8 +436,6 @@ def main(chars: pd.DataFrame, features: pd.DataFrame, daily_ret: pd.DataFrame) -
 					n_ep = epochs_warm
 				except Exception:
 					n_ep = epochs_cold
-			# loadings first without precision, then precision on their residuals,
-			# then loadings refined with precision in place
 			ln = train_loadings(ln, None, x_list, r_list, n_ep, device)
 			if pn is not None:
 				pn = train_precision(pn, ln, x_list, r_list, epochs_var, device)
@@ -380,16 +469,47 @@ def main(chars: pd.DataFrame, features: pd.DataFrame, daily_ret: pd.DataFrame) -
 			if d < 1e-12:
 				n_skip += 1
 				continue
-			results.append(pd.DataFrame({"id": md["id"].to_numpy(), "eom": eom, "w": w / d}))
+			w = w / d
+			ids_out = md["id"].to_numpy()
+
+			if use_vol_target:
+				sigma, keep_ids = covariance_for(daily, eom, ids_out)
+				if sigma is None:
+					n_skip += 1
+					continue
+				pos = pd.Index(ids_out).get_indexer(keep_ids)
+				ok = pos >= 0
+				if ok.sum() < min_universe:
+					n_skip += 1
+					continue
+				if not ok.all():
+					sigma = sigma[np.ix_(ok, ok)]
+					pos = pos[ok]
+				# both must be reordered to the covariance row order, unconditionally
+				w = w[pos]
+				ids_out = ids_out[pos]
+				d = np.abs(w).sum()
+				if d < 1e-12:
+					n_skip += 1
+					continue
+				w = w / d
+				vol = float(np.sqrt(max(w @ (sigma @ w), 0.0)))
+				if vol < 1e-12:
+					n_skip += 1
+					continue
+				scale = min(target_vol / vol, gross_cap)
+				w = w * scale
+				n_scaled += 1
+
+			results.append(pd.DataFrame({"id": ids_out, "eom": eom, "w": w}))
 			n_done += 1
 
 	if not results:
 		raise ValueError("no weights produced")
 
 	out = pd.concat(results, ignore_index=True)
-	print("months solved", n_done, "skipped", n_skip,
-	      "total_min", round((time.time() - t_start) / 60.0, 1), flush=True)
-	print("output rows", len(out), "months", out["eom"].nunique(), flush=True)
+	print("months solved", n_done, "skipped", n_skip, "volatility scaled", n_scaled,
+	      "rows", len(out), "total_min", round((time.time() - t_start) / 60.0, 1), flush=True)
 
 	report_sharpe(out, work)
 
@@ -405,4 +525,3 @@ if __name__ == "__main__":
 	daily_ret = pd.read_parquet("jkp-data/daily_ret.parquet")
 	pf = main(chars, features, daily_ret)
 	pf.to_csv("output.csv", index=False)
-	print("wrote output.csv rows", len(pf), "months", pf["eom"].nunique(), flush=True)
