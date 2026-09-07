@@ -1,0 +1,592 @@
+"""Coupled factor portfolio with a learned orthonormal subspace.
+
+The characteristics are read through an orthonormal frame before the network sees
+them, and that frame is trained on the same objective as everything else rather
+than fitted separately.
+
+An earlier version estimated the frame by a criterion of its own, the separation
+of predictor means and covariances across slices of the response, and handed the
+result to a network trained on realised Sharpe. The two objectives need not agree,
+and there is no reason the directions that best separate response slices are the
+directions that best serve the portfolio. Here the frame is a parameter of the
+model, updated by Riemannian gradient steps on the Sharpe objective: the ordinary
+gradient is projected onto the horizontal space, which removes the directions that
+merely rotate the frame without moving the subspace it spans, and the iterate is
+returned to the manifold by polar retraction after each step.
+
+Keeping the frame orthonormal rather than letting it be an unconstrained linear
+layer serves two purposes. It fixes the conditioning of the projection, so the
+network cannot compensate for a poorly scaled direction by inflating a weight, and
+it removes the rotational redundancy that an unconstrained matrix would carry,
+since only the subspace spanned is identified by the objective.
+
+The frame is initialised at the leading principal directions of the characteristic
+covariance, which is a sensible starting subspace before any return information is
+used, and is then free to move.
+
+subspace_dim of zero passes the characteristics through unchanged and recovers the
+previous model."""
+
+import random
+import time
+
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+
+# latent factors
+k_factors = 32
+moment_halflife = 120.0
+cov_shrink = 0.2
+factor_ridge = 1e-4
+
+# precision weighting
+use_precision = True
+precision_clip = (-4.0, 4.0)
+
+# networks
+d_model = 128
+d_hidden = 256
+dropout = 0.1
+
+# training
+lr = 3e-4
+weight_decay = 1e-4
+grad_clip = 1.0
+epochs_cold = 40
+epochs_warm = 12
+epochs_var = 20
+batch_months = 24
+n_seeds = 4
+base_seed = 42
+min_train_months = 120
+
+# beta neutralisation
+beta_col = "beta_60m"
+
+# learned orthonormal subspace, zero passes characteristics through unchanged
+subspace_dim = 128
+subspace_lr_scale = 3.0
+
+# volatility targeting. Each month the book is rescaled so its ex ante volatility,
+# measured against a shrinkage covariance from the trailing year of daily returns,
+# meets the target, subject to a gross exposure cap.
+use_vol_target = True
+target_vol_annual = 0.10
+gross_cap = 12.0
+cov_lookback_days = 126
+min_day_frac = 0.5
+min_universe = 30
+trading_days_per_month = 21.0
+
+# data preprocessing
+min_coverage = 0.90
+pre_test_date = "1990-01-01"
+min_stocks = 30
+max_miss_frac = 1.0 / 3.0
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def seed_all(s):
+	random.seed(s)
+	np.random.seed(s)
+	torch.manual_seed(s)
+	torch.cuda.manual_seed_all(s)
+
+
+def horizontal(egrad, y):
+	"""Component of a gradient that moves the subspace rather than the frame."""
+	return egrad - y @ (y.transpose(0, 1) @ egrad)
+
+
+def retract(y):
+	"""Return a matrix to the Stiefel manifold by polar retraction."""
+	u, _, vt = torch.linalg.svd(y, full_matrices=False)
+	return u @ vt
+
+
+class subspace_layer(nn.Module):
+	"""Orthonormal frame applied before the encoder, trained on the manifold."""
+
+	def __init__(self, n_features, k, init=None):
+		super().__init__()
+		if init is not None:
+			w = torch.as_tensor(init, dtype=torch.float32)
+		else:
+			w = torch.linalg.qr(torch.randn(n_features, k))[0]
+		self.frame = nn.Parameter(w)
+
+	def forward(self, x):
+		return x @ self.frame
+
+	@torch.no_grad()
+	def riemannian_step(self, step):
+		"""Project the accumulated gradient and retract back to the manifold."""
+		if self.frame.grad is None:
+			return
+		g = horizontal(self.frame.grad, self.frame.data)
+		nrm = torch.linalg.norm(g)
+		if not torch.isfinite(nrm) or nrm < 1e-12:
+			self.frame.grad = None
+			return
+		self.frame.data = retract(self.frame.data - step * g / nrm)
+		self.frame.grad = None
+
+
+class loading_net(nn.Module):
+	"""Characteristics to k loadings, conditioned on the cross section."""
+
+	def __init__(self, n_features, sub_init=None):
+		super().__init__()
+		self.sub = subspace_layer(n_features, subspace_dim, sub_init) if subspace_dim > 0 else None
+		width = subspace_dim if subspace_dim > 0 else n_features
+		self.encoder = nn.Sequential(
+			nn.Linear(width, d_hidden),
+			nn.LayerNorm(d_hidden),
+			nn.GELU(),
+			nn.Dropout(dropout),
+			nn.Linear(d_hidden, d_model),
+			nn.LayerNorm(d_model),
+		)
+		self.head = nn.Sequential(
+			nn.Linear(2 * d_model, d_hidden),
+			nn.GELU(),
+			nn.Dropout(dropout),
+			nn.Linear(d_hidden, k_factors),
+		)
+
+	def forward(self, x):
+		if self.sub is not None:
+			x = self.sub(x)
+		z = self.encoder(x)
+		ctx = z.mean(dim=0, keepdim=True).expand_as(z)
+		h = self.head(torch.cat([z, ctx], dim=1))
+		return h - h.mean(dim=0, keepdim=True)
+
+
+class precision_net(nn.Module):
+	"""Characteristics to a log idiosyncratic variance."""
+
+	def __init__(self, n_features):
+		super().__init__()
+		self.net = nn.Sequential(
+			nn.Linear(n_features, d_hidden),
+			nn.LayerNorm(d_hidden),
+			nn.GELU(),
+			nn.Dropout(dropout),
+			nn.Linear(d_hidden, d_hidden),
+			nn.GELU(),
+			nn.Linear(d_hidden, 1),
+		)
+
+	def forward(self, x):
+		return self.net(x).clamp(precision_clip[0], precision_clip[1]).squeeze(-1)
+
+
+def resolve(df, candidates, label):
+	for c in candidates:
+		if c in df.columns:
+			return c
+	raise KeyError(label + " not resolvable")
+
+
+def build_daily(daily_ret):
+	idc = resolve(daily_ret, ["id", "permno"], "daily id")
+	datec = resolve(daily_ret, ["date", "day"], "daily date")
+	retc = resolve(daily_ret, ["ret_exc", "ret", "ret_local"], "daily return")
+	d = daily_ret[[idc, datec, retc]].copy()
+	d.columns = ["id", "date", "r"]
+	d["date"] = pd.to_datetime(d["date"])
+	d = d.dropna(subset=["id", "date", "r"])
+	return d.sort_values("date", kind="mergesort").reset_index(drop=True)
+
+
+def shrink_covariance(x):
+	"""Shrinkage covariance with a constant correlation target. x is T by N."""
+	t, n = x.shape
+	xc = x - x.mean(axis=0, keepdims=True)
+	s = (xc.T @ xc) / t
+	var = np.maximum(np.diag(s).copy(), 1e-16)
+	sd = np.sqrt(var)
+	outer_sd = np.outer(sd, sd)
+	off = ~np.eye(n, dtype=bool)
+	r_bar = float((s / outer_sd)[off].mean()) if n > 1 else 0.0
+	target = r_bar * outer_sd
+	np.fill_diagonal(target, var)
+
+	x2 = xc * xc
+	pi_mat = (x2.T @ x2) / t - s * s
+	a = ((x2 * xc).T @ xc) / t
+	ratio = np.outer(1.0 / sd, sd)
+	rho_off = (r_bar / 2.0) * (ratio * (a - var[:, None] * s) + ratio.T * (a.T - var[None, :] * s))
+	rho_hat = float(np.diag(pi_mat).sum() + rho_off[off].sum())
+	diff = target - s
+	gamma_hat = float((diff * diff).sum())
+	delta = 0.0 if gamma_hat <= 1e-30 else float(np.clip((float(pi_mat.sum()) - rho_hat) / gamma_hat / t, 0.0, 1.0))
+
+	sigma = delta * target + (1.0 - delta) * s
+	sigma.flat[:: n + 1] += 1e-12
+	return sigma
+
+
+def covariance_for(daily, eom, ids):
+	"""Monthly covariance from the trailing year of daily returns."""
+	start = eom - pd.DateOffset(days=int(cov_lookback_days * 1.6))
+	win = daily[(daily["date"] > start) & (daily["date"] <= eom)]
+	if not len(win):
+		return None, None
+	win = win[win["id"].isin(set(ids.tolist()))]
+	if not len(win):
+		return None, None
+	piv = win.pivot_table(index="date", columns="id", values="r", aggfunc="last").tail(cov_lookback_days)
+	if piv.shape[0] < 40:
+		return None, None
+	frac = piv.notna().mean(axis=0)
+	keep = frac[frac >= min_day_frac].index
+	if len(keep) < min_universe:
+		return None, None
+	piv = piv[keep]
+	x = np.array(piv.to_numpy(dtype=np.float64), copy=True)
+	col_mean = np.nanmean(x, axis=0)
+	inds = np.where(np.isnan(x))
+	x[inds] = np.take(col_mean, inds[1])
+	return shrink_covariance(x) * trading_days_per_month, np.asarray(keep)
+
+
+def factor_weights(h, omega=None):
+	"""Loadings to factor portfolios, one unit of gross exposure each."""
+	if omega is not None:
+		h = h * omega.unsqueeze(1)
+	h = h - h.mean(dim=0, keepdim=True)
+	return h / (h.abs().sum(dim=0, keepdim=True) + 1e-8)
+
+
+def train_loadings(model, prec, x_list, r_list, n_epochs, device):
+	"""Fit loadings on the realised Sharpe of the equally combined factors."""
+	euclid = [q for n, q in model.named_parameters() if not n.startswith("sub.")]
+	opt = torch.optim.AdamW(euclid, lr=lr, weight_decay=weight_decay)
+	model.train()
+	xg = [torch.as_tensor(x, dtype=torch.float32, device=device) for x in x_list]
+	rg = [torch.as_tensor(r, dtype=torch.float32, device=device) for r in r_list]
+	t = len(xg)
+	for _ in range(n_epochs):
+		order = np.random.permutation(t)
+		for start in range(0, t, batch_months):
+			idx = order[start:start + batch_months]
+			if len(idx) < 6:
+				continue
+			rets = []
+			for j in idx:
+				om = None
+				if prec is not None:
+					with torch.no_grad():
+						om = torch.exp(-prec(xg[j]))
+						om = om / (om.mean() + 1e-8)
+				w = factor_weights(model(xg[j]), om)
+				rets.append((w.transpose(0, 1) @ rg[j]).mean())
+			rets = torch.stack(rets)
+			sharpe = rets.mean() / (rets.std(unbiased=False) + 1e-8)
+			opt.zero_grad(set_to_none=True)
+			if model.sub is not None:
+				model.sub.frame.grad = None
+			(-sharpe).backward()
+			nn.utils.clip_grad_norm_(euclid, grad_clip)
+			opt.step()
+			if model.sub is not None:
+				model.sub.riemannian_step(lr * subspace_lr_scale)
+	del xg, rg
+	return model
+
+
+def train_precision(model, loadings, x_list, r_list, n_epochs, device):
+	"""Gaussian negative log likelihood on the fitted residuals."""
+	loadings.train(False)
+	net = model
+	opt = torch.optim.AdamW(net.parameters(), lr=lr, weight_decay=weight_decay)
+	blocks = []
+	with torch.no_grad():
+		for x, r in zip(x_list, r_list):
+			xg = torch.as_tensor(x, dtype=torch.float32, device=device)
+			rg = torch.as_tensor(r, dtype=torch.float32, device=device)
+			h = loadings(xg)
+			eye = factor_ridge * torch.eye(h.shape[1], device=device)
+			f = torch.linalg.solve(h.transpose(0, 1) @ h + eye, h.transpose(0, 1) @ rg)
+			blocks.append((xg, ((h @ f) - rg) ** 2))
+	net.train()
+	order = list(range(len(blocks)))
+	for _ in range(n_epochs):
+		random.shuffle(order)
+		for j in order:
+			xg, res_sq = blocks[j]
+			log_var = net(xg)
+			loss = (log_var + res_sq * torch.exp(-log_var)).mean()
+			opt.zero_grad(set_to_none=True)
+			loss.backward()
+			nn.utils.clip_grad_norm_(net.parameters(), grad_clip)
+			opt.step()
+	del blocks
+	net.train(False)
+	return net
+
+
+@torch.no_grad()
+def factor_history(loadings, prec, x_list, r_list, device):
+	loadings.train(False)
+	rows = []
+	for x, r in zip(x_list, r_list):
+		xg = torch.as_tensor(x, dtype=torch.float32, device=device)
+		om = None
+		if prec is not None:
+			om = torch.exp(-prec(xg))
+			om = om / (om.mean() + 1e-8)
+		w = factor_weights(loadings(xg), om)
+		f = w.transpose(0, 1) @ torch.as_tensor(r, dtype=torch.float32, device=device)
+		rows.append(f.cpu().numpy().astype(np.float64))
+	return np.stack(rows, axis=0)
+
+
+def combination_weights(f_hist):
+	"""Factor combination from exponentially weighted moments."""
+	n, k = f_hist.shape
+	age = np.arange(n - 1, -1, -1, dtype=np.float64)
+	w = np.exp(-np.log(2.0) * age / max(moment_halflife, 1.0))
+	w = w / w.sum()
+
+	mu = (f_hist * w[:, None]).sum(axis=0)
+	d = f_hist - mu
+	cov = (d * w[:, None]).T @ d / max(1.0 - (w ** 2).sum(), 1e-8)
+	cov = np.atleast_2d(cov)
+	target = (np.trace(cov) / k) * np.eye(k)
+	cov = (1.0 - cov_shrink) * cov + cov_shrink * target
+	cov = cov + factor_ridge * (np.trace(cov) / k) * np.eye(k)
+	try:
+		return np.linalg.solve(cov, mu)
+	except np.linalg.LinAlgError:
+		return mu
+
+
+@torch.no_grad()
+def book_weights(loadings, prec, lam, x, device):
+	loadings.train(False)
+	xg = torch.as_tensor(x, dtype=torch.float32, device=device)
+	om = None
+	if prec is not None:
+		om = torch.exp(-prec(xg))
+		om = om / (om.mean() + 1e-8)
+	w = factor_weights(loadings(xg), om)
+	raw = (w @ torch.as_tensor(lam, dtype=torch.float32, device=device)).cpu().numpy().astype(np.float64)
+	d = np.abs(raw).sum()
+	return raw / d if d > 1e-12 else raw
+
+
+def project_out_beta(w, beta):
+	"""Remove the component of the book along beta, keeping net exposure."""
+	if beta is None:
+		return w
+	b = beta.reshape(-1, 1)
+	coef, _, _, _ = np.linalg.lstsq(b, w, rcond=None)
+	return w - b @ coef
+
+
+def sharpe_of(series):
+	if len(series) < 12:
+		return float("nan")
+	sd = series.std(ddof=1)
+	return float(series.mean() / sd * np.sqrt(12.0)) if sd > 1e-12 else float("nan")
+
+
+def report_sharpe(out, work):
+	ret = work[["id", "eom", "ret_exc_lead1m"]].rename(columns={"ret_exc_lead1m": "r"}).dropna(subset=["r"])
+	j = out.merge(ret, on=["id", "eom"], how="inner")
+	j["c"] = j["w"] * j["r"]
+	s = j.groupby("eom")["c"].sum().sort_index()
+	pre = s[s.index < pre_test_date]
+	post = s[s.index >= pre_test_date]
+	print()
+	print("months total", len(s), "pre", len(pre), "test", len(post), flush=True)
+	print("TEST WINDOW   sharpe", round(sharpe_of(post), 3), flush=True)
+	print("PRE TEST      sharpe", round(sharpe_of(pre), 3), flush=True)
+	if len(post) > 1:
+		print("annualised return", round(float(post.mean()) * 12.0, 4),
+		      "volatility", round(float(post.std(ddof=1)) * np.sqrt(12.0), 4), flush=True)
+
+
+def main(chars: pd.DataFrame, features: pd.DataFrame, daily_ret: pd.DataFrame) -> pd.DataFrame:
+	t_start = time.time()
+	print("torch", torch.__version__, "device", device, "seeds", n_seeds, "k", k_factors,
+	      "vol_target", use_vol_target, flush=True)
+	seed_all(base_seed)
+
+	candidates = [f for f in features["features"].tolist() if f in chars.columns]
+	work = chars.copy()
+	work["eom"] = pd.to_datetime(work["eom"]) + pd.offsets.MonthEnd(0)
+	work["id"] = pd.to_numeric(work["id"], errors="coerce").astype("int64")
+
+	daily = None
+	if use_vol_target:
+		if daily_ret is None or not len(daily_ret):
+			raise ValueError("daily returns are required when use_vol_target is on")
+		daily = build_daily(daily_ret)
+
+	by_month = {eom: md for eom, md in work.groupby("eom", sort=True)}
+	all_months = sorted(by_month.keys())
+	target_months = [m for m in all_months
+	                 if np.isfinite(by_month[m]["ret_exc_lead1m"].to_numpy(dtype=np.float64)).sum() >= min_stocks]
+	print("months", len(all_months), "with targets", len(target_months), flush=True)
+
+	years = sorted({pd.Timestamp(m).year for m in all_months})
+	target_vol = target_vol_annual / np.sqrt(12.0)
+	n_scaled = 0
+	results = []
+	loaders, precs, lams, cols = [], [], [], None
+	n_done = 0
+	n_skip = 0
+
+	for yi, yr in enumerate(years, 1):
+		eoms = [m for m in all_months if pd.Timestamp(m).year == yr]
+		cutoff = max([m for m in target_months if m < min(eoms)], default=None)
+		if cutoff is None:
+			continue
+		train_months = [m for m in target_months if m <= cutoff]
+		if len(train_months) < min_train_months:
+			continue
+
+		t0 = time.time()
+		panel = work[work["eom"].isin(train_months)]
+		frac = panel[candidates].notna().mean()
+		cols = [c for c in candidates if frac[c] >= min_coverage]
+		n_in = len(cols)
+
+		x_list, r_list = [], []
+		for mm in train_months:
+			md = by_month[mm]
+			md = md.loc[(md[cols].isna().sum(axis=1) <= n_in * max_miss_frac).to_numpy()]
+			rv = md["ret_exc_lead1m"].to_numpy(dtype=np.float64)
+			fin = np.isfinite(rv)
+			if fin.sum() < min_stocks:
+				continue
+			md = md.loc[fin]
+			x = md[cols].rank(pct=True).to_numpy(dtype=np.float32)
+			x_list.append(np.nan_to_num(x, nan=0.5) - 0.5)
+			r_list.append(rv[fin].astype(np.float32))
+		if len(x_list) < min_train_months // 2:
+			continue
+
+		sub_init = None
+		if subspace_dim > 0:
+			# leading principal directions of the characteristic covariance, a
+			# reasonable subspace before any return information is used
+			acc = np.zeros((n_in, n_in))
+			for xx in x_list:
+				xc = xx.astype(np.float64)
+				xc = xc - xc.mean(axis=0)
+				acc += xc.T @ xc
+			vals, vecs = np.linalg.eigh(acc / max(len(x_list), 1))
+			sub_init = vecs[:, np.argsort(vals)[::-1][:subspace_dim]]
+
+		warm = len(loaders) == n_seeds
+		new_l, new_p, new_lam = [], [], []
+		for s in range(n_seeds):
+			seed_all(base_seed + s)
+			ln = loading_net(n_in, sub_init).to(device)
+			pn = precision_net(n_in).to(device) if use_precision else None
+			n_ep = epochs_cold
+			if warm:
+				try:
+					ln.load_state_dict(loaders[s].state_dict())
+					if pn is not None and precs[s] is not None:
+						pn.load_state_dict(precs[s].state_dict())
+					n_ep = epochs_warm
+				except Exception:
+					n_ep = epochs_cold
+			ln = train_loadings(ln, None, x_list, r_list, n_ep, device)
+			if pn is not None:
+				pn = train_precision(pn, ln, x_list, r_list, epochs_var, device)
+				ln = train_loadings(ln, pn, x_list, r_list, max(n_ep // 2, 4), device)
+			f_hist = factor_history(ln, pn, x_list, r_list, device)
+			new_l.append(ln)
+			new_p.append(pn)
+			new_lam.append(combination_weights(f_hist))
+		loaders, precs, lams = new_l, new_p, new_lam
+		del x_list, r_list
+		print("year", yr, "(", yi, "of", len(years), ") train months", len(train_months),
+		      "inputs", n_in, "fit_sec", round(time.time() - t0),
+		      "elapsed_min", round((time.time() - t_start) / 60.0, 1), flush=True)
+
+		for eom in eoms:
+			md = by_month[eom]
+			md = md.loc[(md[cols].isna().sum(axis=1) <= n_in * max_miss_frac).to_numpy()]
+			if len(md) < min_stocks:
+				n_skip += 1
+				continue
+			x = md[cols].rank(pct=True).to_numpy(dtype=np.float32)
+			x = np.nan_to_num(x, nan=0.5) - 0.5
+			acc = np.zeros(len(md), dtype=np.float64)
+			for ln, pn, lam in zip(loaders, precs, lams):
+				acc += book_weights(ln, pn, lam, x, device)
+			w = acc / len(loaders)
+			if beta_col is not None and beta_col in md.columns:
+				bt = md[beta_col].rank(pct=True).to_numpy(dtype=np.float64)
+				w = project_out_beta(w, np.nan_to_num(bt, nan=0.5) - 0.5)
+			d = np.abs(w).sum()
+			if d < 1e-12:
+				n_skip += 1
+				continue
+			w = w / d
+			ids_out = md["id"].to_numpy()
+
+			if use_vol_target:
+				sigma, keep_ids = covariance_for(daily, eom, ids_out)
+				if sigma is None:
+					n_skip += 1
+					continue
+				pos = pd.Index(ids_out).get_indexer(keep_ids)
+				ok = pos >= 0
+				if ok.sum() < min_universe:
+					n_skip += 1
+					continue
+				if not ok.all():
+					sigma = sigma[np.ix_(ok, ok)]
+					pos = pos[ok]
+				# both must be reordered to the covariance row order, unconditionally
+				w = w[pos]
+				ids_out = ids_out[pos]
+				d = np.abs(w).sum()
+				if d < 1e-12:
+					n_skip += 1
+					continue
+				w = w / d
+				vol = float(np.sqrt(max(w @ (sigma @ w), 0.0)))
+				if vol < 1e-12:
+					n_skip += 1
+					continue
+				scale = min(target_vol / vol, gross_cap)
+				w = w * scale
+				n_scaled += 1
+
+			results.append(pd.DataFrame({"id": ids_out, "eom": eom, "w": w}))
+			n_done += 1
+
+	if not results:
+		raise ValueError("no weights produced")
+
+	out = pd.concat(results, ignore_index=True)
+	print("months solved", n_done, "skipped", n_skip, "volatility scaled", n_scaled,
+	      "rows", len(out), "total_min", round((time.time() - t_start) / 60.0, 1), flush=True)
+
+	report_sharpe(out, work)
+
+	out["eom"] = pd.to_datetime(out["eom"]).dt.strftime("%Y-%m-%d")
+	out["id"] = out["id"].astype(int)
+	out["w"] = out["w"].astype(float)
+	return out[["id", "eom", "w"]]
+
+
+if __name__ == "__main__":
+	chars = pd.read_parquet("jkp-data/chars.parquet")
+	features = pd.read_parquet("jkp-data/features.parquet")
+	daily_ret = pd.read_parquet("jkp-data/daily_ret.parquet")
+	pf = main(chars, features, daily_ret)
+	pf.to_csv("output.csv", index=False)

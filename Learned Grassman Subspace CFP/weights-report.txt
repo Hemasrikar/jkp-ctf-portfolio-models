@@ -1,0 +1,27 @@
+model: learned-grassman-subspace-cfp | timestamped copy: weights_history\weights_2026-09-07_17-45-30_learned-grassman-subspace-cfp.csv
+ctff_test dtype: int32
+ctff_test values: {1: 885698, 0: 483626}
+test rows: 885698 test months: 408
+test eom range: 1989-12-31 -> 2023-11-30
+weights eom range: 1962-01-31 -> 2023-11-30
+wrote weights.csv and weights_history\weights_2026-09-07_17-45-30_learned-grassman-subspace-cfp.csv
+matched rows: 885398 months: 408
+size MB: 26.0
+
+submitted weights, test rows only
+months scored: 408 range 1989-12-31 -> 2023-11-30
+annualised return: 0.4121
+annualised volatility: 0.1356
+sharpe unscaled: 3.039
+max drawdown unscaled: -0.103
+sharpe scaled to 10 percent vol: 2.904
+max drawdown scaled: -0.1074
+
+all months in the weights file
+months scored: 743 range 1962-01-31 -> 2023-11-30
+annualised return: 0.489
+annualised volatility: 0.1307
+sharpe unscaled: 3.742
+max drawdown unscaled: -0.103
+sharpe scaled to 10 percent vol: 3.685
+max drawdown scaled: -0.1074
