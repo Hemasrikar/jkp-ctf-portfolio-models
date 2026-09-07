@@ -1,48 +1,36 @@
 """Time series low rank factor portfolio.
 
-Characteristics do not predict returns directly. They determine a stock's exposure
-to a small number of common return drivers, so the predictable part of the cross
-section is low rank. Every model in this project has imposed that structure through
-cross sectional regressions, one month at a time, recovering factor returns per
-month and fitting loadings to explain them. This imposes it in the other direction.
+Characteristics don't predict returns directly. They set a stock's exposure to a
+handful of common return drivers, which is why the predictable part of the cross
+section ends up low rank. Most models estimate that structure with a monthly cross
+sectional regression. This one does it the other way round: each characteristic
+becomes a long short portfolio, ranked within the month, demeaned, and scaled to
+unit gross, and its daily returns come from applying month t's weights to month
+t + 1's daily returns. That builds a daily panel of managed portfolio returns, so
+the covariance of a few hundred portfolios comes from thousands of observations
+rather than a few hundred monthly ones.
 
-Each characteristic is turned into a long short portfolio by ranking within the
-month, demeaning and dividing by gross exposure. The daily returns of those
-characteristic portfolios are then formed by applying the weights of month t to the
-daily returns realised during month t plus one. That gives a panel of managed
-portfolio returns at daily frequency, from which the covariance of a few hundred
-portfolios can be estimated from thousands of observations rather than a few
-hundred monthly ones.
+The low rank structure is estimated on that panel. Its leading directions are
+linear combinations of characteristic portfolios and can be traded directly. A
+network maps characteristics to exposures over those directions, conditioned on a
+pooled cross sectional context so a stock's exposure reflects the composition of
+its month, and it's trained on the realised Sharpe of the resulting book.
 
-The low rank structure is imposed on that panel. Its leading eigenvectors are
-linear combinations of characteristic portfolios, and are themselves tradeable. A
-network maps characteristics to weights over those components, conditioned on a
-pooled cross sectional context, so a stock's exposure to each component depends on
-the composition of its month. The network is fitted on the realised Sharpe ratio of
-the resulting book.
+Directions aren't chosen by variance alone. Ranking eigenvectors that way rewards
+how much a direction moves, not how much it earns, so a high Sharpe but low
+variance direction would lose out to a big unrewarded one. Each direction's squared
+mean return is added to its variance before ranking to correct for that. Because
+these directions are individually tradeable, rather than rotation invariant the way
+the instrumented construction is, this choice actually changes the portfolio.
 
-The traded book combines the components using exponentially weighted moments, with
-market beta projected out without an intercept so the net exposure survives, and is
-then scaled so that its forecast volatility meets a target. That overlay was worth
-far more than any change to the signal in earlier work on this panel, since the
-Sharpe ratio is invariant to a constant scale and the gain comes entirely from
-varying leverage with conditions the covariance can foresee.
+The book combines the directions under exponentially weighted moments, projects out
+market beta without an intercept so the net tilt survives, and scales to a
+volatility target. That overlay did more for performance than any change to the
+signal, since Sharpe is scale invariant and the whole gain comes from timing
+leverage against conditions the covariance can already see coming.
 
-The components are also not selected by variance alone. Taking the leading
-eigenvectors of the managed portfolio covariance ranks directions by how much they
-move, which is not the same as how much they earn: a combination with a high Sharpe
-ratio but modest variance is discarded in favour of a large but unrewarded one.
-Following the risk premium formulation of principal components, the selection
-criterion adds the squared mean return of each direction to its variance, so
-directions are kept for their return content as well as their movement. Unlike the
-instrumented construction, whose book is invariant to any rotation of its loadings,
-the components here are individually tradeable, so which basis is chosen changes the
-portfolio and the criterion is not inert.
-
-Temporal integrity: the eigenbasis is estimated from months at or before each
-year's cutoff, the network is refitted yearly on the same window, and the coverage
-filter is recomputed yearly.
-"""
+The eigenbasis and the network are both refit yearly on months up to that year's
+cutoff, so nothing from the future enters."""
 
 import random
 import time
@@ -127,7 +115,6 @@ def characteristic_portfolios(md, cols):
 
 def managed_daily_returns(by_month, cols, daily_ret):
 	"""Daily returns of the characteristic portfolios.
-
 	Weights formed at the end of month t are applied to daily returns during month
 	t plus one, so nothing from the future enters.
 	"""
@@ -180,7 +167,6 @@ def managed_daily_returns(by_month, cols, daily_ret):
 
 def eigenbasis(block):
 	"""Directions of the managed portfolio panel, ranked by movement and return.
-
 	The second moment about zero is the covariance plus the outer product of the
 	means, so its leading eigenvectors rank a direction by variance and squared mean
 	together. rp_weight scales the contribution of the mean, with zero recovering the
@@ -227,7 +213,6 @@ def shrink_covariance(x):
 
 def book_risk(d_date, d_id, d_r, eom, ids):
 	"""Forecast covariance of the traded universe from the trailing daily window.
-
 	Sliced by position on a sorted date array rather than by boolean mask, so no
 	comparison can propagate a missing value and only the relevant window is touched.
 	"""
