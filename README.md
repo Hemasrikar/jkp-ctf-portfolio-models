@@ -9,6 +9,7 @@
 |---|---:|---:|
 | [Coupled Factor Portfolio](./Coupled%20Factor%20Portfolio/) | 3.324 | 3.447 |
 | [Time Series Low Rank Portfolio](./Time%20Series%20Low%20Rank/)| 3.215 | 3.317 |
+| [Grassman Dimension Reduction Factor Portfolio](./Grassman%20Reduction/) | 2.842 | 3.046 |
 | [Volatility Targeted MLP](./Volatility%20Targeted%20MLP/) | 2.753 | 2.912 |
 | [Beta-Neutral Cross-Sectional MLP](./Beta-Neutral%20Cross-Sectional%20MLP/beta_neutral_cross_sectional_mlp.py) | 2.541 | 2.614 |
 | [Cross Sectional MLP](./Cross%20Sectional%20MLP/cross-sectional-mlp.py) | 2.484 | 2.553 |
