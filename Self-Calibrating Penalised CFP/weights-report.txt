@@ -1,0 +1,27 @@
+model: self-calibrating-penalised-cfp | timestamped copy: weights_history\weights_2026-09-10_01-24-38_self-calibrating-penalised-cfp.csv
+ctff_test dtype: int32
+ctff_test values: {1: 885698, 0: 483626}
+test rows: 885698 test months: 408
+test eom range: 1989-12-31 -> 2023-11-30
+weights eom range: 1962-01-31 -> 2023-11-30
+wrote weights.csv and weights_history\weights_2026-09-10_01-24-38_self-calibrating-penalised-cfp.csv
+matched rows: 876557 months: 408
+size MB: 25.7
+
+submitted weights, test rows only
+months scored: 408 range 1989-12-31 -> 2023-11-30
+annualised return: 0.4562
+annualised volatility: 0.1329
+sharpe unscaled: 3.433
+max drawdown unscaled: -0.1365
+sharpe scaled to 10 percent vol: 3.229
+max drawdown scaled: -0.1446
+
+all months in the weights file
+months scored: 743 range 1962-01-31 -> 2023-11-30
+annualised return: 0.5284
+annualised volatility: 0.1259
+sharpe unscaled: 4.197
+max drawdown unscaled: -0.1365
+sharpe scaled to 10 percent vol: 4.103
+max drawdown scaled: -0.1446

@@ -1,0 +1,27 @@
+model: tangency-minus-minimum-variance-mlp | timestamped copy: weights_history\weights_2026-09-10_02-12-01_tangency-minus-minimum-variance-mlp.csv
+ctff_test dtype: int32
+ctff_test values: {1: 885698, 0: 483626}
+test rows: 885698 test months: 408
+test eom range: 1989-12-31 -> 2023-11-30
+weights eom range: 1956-12-31 -> 2023-11-30
+wrote weights.csv and weights_history\weights_2026-09-10_02-12-01_tangency-minus-minimum-variance-mlp.csv
+matched rows: 876549 months: 408
+size MB: 25.7
+
+submitted weights, test rows only
+months scored: 408 range 1989-12-31 -> 2023-11-30
+annualised return: 0.4644
+annualised volatility: 0.1521
+sharpe unscaled: 3.054
+max drawdown unscaled: -0.1592
+sharpe scaled to 10 percent vol: 2.847
+max drawdown scaled: -0.1309
+
+all months in the weights file
+months scored: 804 range 1956-12-31 -> 2023-11-30
+annualised return: 0.5276
+annualised volatility: 0.1357
+sharpe unscaled: 3.888
+max drawdown unscaled: -0.1592
+sharpe scaled to 10 percent vol: 3.901
+max drawdown scaled: -0.1309
