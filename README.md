@@ -25,7 +25,7 @@ As of now, the models provided above are ranked at decent positions on the [JKP 
 ---
 ## Important Findings
 
-Findings are stated at the panel level where they hold across models
+Findings are stated at the panel level where they hold across models.
 
 **The signal is close to fully extracted:** A variance decomposition of the
 Coupled Factor Portfolio found an annualised alpha of 5.74% with a t-statistic
@@ -117,3 +117,25 @@ path-signature depth would therefore have reduced test Sharpe by 0.10.
 Factor Portfolio, `gross_cap = 12` never binds, while `target_vol` is a pure
 scale parameter, changing Sharpe by only 0.005. `moment_halflife` and
 `cov_shrink` were also effectively flat across a fourfold range.
+
+---
+## Data
+
+The models are trained on the global factor data of Jensen, Kelly and Pedersen
+(2023), which is constructed from CRSP and Compustat and distributed through
+WRDS. In accordance with the WRDS subscriber agreement, this repository does
+not contain raw data, processed feature files or trained model weights. Users
+who wish to reproduce the results must obtain the data through their own WRDS
+subscription and place it in the paths expected by each script.
+
+Jensen, T. I., Kelly, B., and Pedersen, L. H. (2023). Is There a Replication
+Crisis in Finance? *The Journal of Finance*, 78(5).
+
+---
+## License
+
+The source code in this repository is released under the [MIT License](./LICENSE).
+The accompanying PDF documents are released under the
+[Creative Commons Attribution 4.0 International License](https://creativecommons.org/licenses/by/4.0/).
+The license does not extend to the underlying data, which remains subject to
+the terms of its original providers.
