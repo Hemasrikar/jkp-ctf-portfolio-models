@@ -7,6 +7,7 @@
 
 | Model name | Sharpe value scaled | Sharpe value unscaled | Doc |
 |---|---:|---:| ---: |
+| [Graph SPectral Alpha](./Graph%20Spectral%20Alpha/) | 4.655 (Vol = 5.57%) | - | - |
 | [Coupled Factor Portfolio](./Coupled%20Factor%20Portfolio/) | 3.324 | 3.447 | [pdf](./Coupled%20Factor%20Portfolio/coupled_factor_portfolio.pdf) |
 | [Time Series Low Rank Portfolio](./Time%20Series%20Low%20Rank/)| 3.215 | 3.317 | [pdf](./Time%20Series%20Low%20Rank/time_series_low_rank.pdf) | 
 | [Grassman Dimension Reduction Factor Portfolio](./Grassman%20Reduction/) | 2.842 | 3.046 | [pdf](./Grassman%20Reduction/grassmann_reduction.pdf) |
