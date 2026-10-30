@@ -49,8 +49,13 @@ the correlation matrix, J the coupling and beta the inverse temperature, the spi
 whose stationary point is m = tanh(beta (h - J C m)). We use beta = 0.5 and J = 0.3, and we
 solve the problem with a bounded quasi Newton method. The spins are scaled by the inverse
 volatility of each stock so that a spin is a unit of risk, made neutral to market beta and
-log size, and scaled so that the exponentially weighted volatility of the trailing profit
-and loss of the book (halflife of 21 days) matches a 10 percent annual target.
+log size, and sized against the exponentially weighted volatility v of the trailing profit
+and loss of the book (halflife of 21 days). The leverage is (target / v)(v_ref / v)^0.5,
+where v_ref is the median of the volatilities estimated in earlier months, so the book is
+sized in proportion to v to the power minus 1.5 rather than minus 1. Because the book is
+positioned against recent moves, its back cast volatility mostly measures how large the
+current reversal setup is, and the steeper sizing rule leans harder into the months where
+that setup is quiet. The target is 10 percent a year with a gross cap of 12.
 
 Implementation: Characteristics are converted to cross sectional percentile ranks centred
 on zero, with missing values set to zero. For the tree the exact zero is restored to
@@ -115,6 +120,7 @@ target_vol_annual = 0.10
 gross_cap = 12.0
 realised_lookback_days = 252
 realised_halflife_days = 21
+vol_power = 1.5
 
 start_date = "1960-01-01"
 target_col = "ret_exc_lead1m"
@@ -382,6 +388,7 @@ def build_weights(chars, features, daily_ret):
 	models = None
 	tree = None
 	band_hist = []
+	vol_hist = []
 	frames = []
 	t_start = int(np.searchsorted(months, np.datetime64(start_date, "D")))
 	n_emit = 0
@@ -466,7 +473,10 @@ def build_weights(chars, features, daily_ret):
 						decay = 0.5 ** (np.arange(len(pnl))[::-1] / realised_halflife_days)
 						vol = np.sqrt((decay * pnl ** 2).sum() / decay.sum() * days_per_month)
 						if vol > 1e-12:
-							w = w * min(target_vol_annual / np.sqrt(12.0) / vol, gross_cap)
+							vref = float(np.median(vol_hist)) if len(vol_hist) >= 12 else vol
+							lev = target_vol_annual / np.sqrt(12.0) / vol * (vref / vol) ** (vol_power - 1.0)
+							w = w * min(lev, gross_cap)
+							vol_hist.append(vol)
 						wt = np.zeros(b - a)
 						wt[rr - a] = w
 						frames.append(pd.DataFrame({"id": ids[a:b], "eom": eom_out[a:b], "w": wt}))
@@ -567,5 +577,5 @@ if __name__ == "__main__":
 	features = pd.read_parquet("jkp-data/features.parquet")
 	daily_ret = pd.read_parquet("jkp-data/daily_ret.parquet")
 	pf = main(chars, features, daily_ret)
-	pf.to_csv("output.csv", index=False)
+	pf.to_csv("output_v10.csv", index=False)
 	print("wrote output.csv rows", len(pf), "months", pf["eom"].nunique(), flush=True)
