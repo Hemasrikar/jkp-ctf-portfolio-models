@@ -7,8 +7,9 @@
 
 | Model name | Sharpe value scaled | Sharpe value unscaled | Doc |
 |---|---:|---:| ---: |
-| [Spectral Attention Ising Book](./Peer%20Attention%20Alpha/) | 4.762 (Vol = 5.29%) | - |
-| [Graph Spectral Alpha](./Graph%20Spectral%20Alpha/) | 4.722 (Vol = 5.57%) | - | - |
+| [Topology-Informed Decomposition Ensemble (TIDE)](./TIDE%20Portfolio/) | 4.267 | 4.741 | - |
+| [Peer Attention Spectral Portfolio](./Peer%20Attention%20Spectral%20Portfolio/) | 4.762 (Vol = 5.29%) | - |
+| [Graph Spectral Forecast Ensemble](./Graph%20Spectral%20Forecast%20Ensemble/) | 4.722 (Vol = 5.57%) | - | - |
 | [Coupled Factor Portfolio](./Coupled%20Factor%20Portfolio/) | 3.324 | 3.447 | [pdf](./Coupled%20Factor%20Portfolio/coupled_factor_portfolio.pdf) |
 | [Time Series Low Rank Portfolio](./Time%20Series%20Low%20Rank/)| 3.215 | 3.317 | [pdf](./Time%20Series%20Low%20Rank/time_series_low_rank.pdf) | 
 | [Grassman Dimension Reduction Factor Portfolio](./Grassman%20Reduction/) | 2.842 | 3.046 | [pdf](./Grassman%20Reduction/grassmann_reduction.pdf) |
